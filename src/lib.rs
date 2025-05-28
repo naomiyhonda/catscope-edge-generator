@@ -10,7 +10,7 @@ use primitive::{
 use safejar::Safejar;
 use solpipe::Solpipe;
 
-pub mod all;
+//pub mod all;
 pub mod primitive;
 pub mod safejar;
 pub mod solpipe;
@@ -22,7 +22,8 @@ pub extern "C" fn _start() -> i32 {
     0
 }
 
-/// The code below defines a basic token filter.
+/// The code below defines a basic filter (edge generator) for
+/// system, token, Safejar, and Solpipe accounts.
 /// # Safety
 #[no_mangle] // Prevent Rust from changing the function name
 pub unsafe extern "C" fn init() -> u64 {

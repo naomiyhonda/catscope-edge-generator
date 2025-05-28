@@ -14,7 +14,7 @@ cargo install cargo-deb@2.7.0
 ## Compile wasm32-wasip1
 
 ```bash
-cargo build --target wasm32-wasip1 --release
+cargo build --target wasm32-wasip1
 ```
 
 ## Compile Debian package
