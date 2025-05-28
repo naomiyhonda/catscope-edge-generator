@@ -1,0 +1,42 @@
+[package]
+name = "catscope-edge-generator"
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/noncepad/catscope-edge-generator"
+license = "MIT"
+
+
+resolver = "2"
+
+[lib]
+crate-type = ["cdylib"]
+
+
+[dependencies]
+borsh = "1.5.7"                                        # or the latest version
+borsh-derive = "1.5.7"
+hex = "0.4"
+tiny-keccak = { version = "2.0", features = ["sha3"] }
+solana-sdk = "=2.2.2"
+once_cell = "1.21.3"
+spl-token = "8.0.0"
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+[package.metadata.deb]
+maintainer = "Maintainers <maintainers@noncepad.com>"
+copyright = "2025, Noncepad LLC"
+license-file = ["LICENSE", "4"]
+extended-description = """\
+A filter for use in the Catscope geyser plugin \
+that produces edges for System, Token, Safejar,\
+and Solpipe accounts."""
+section = "utility"
+priority = "optional"
+assets = [
+  [
+    "target/wasm32-wasip1/release/catscope_edge_generator.wasm",
+    "/usr/share/catscope/catscope_edge_generator.wasm",
+    "644",
+  ],
+]
+depends = ["solana-geyser-plugin-catscope"]
