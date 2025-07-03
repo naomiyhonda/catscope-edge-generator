@@ -1,22 +1,29 @@
-use std::collections::VecDeque;
-
+use self::orca::Orca;
+#[cfg(target_os = "wasi")]
 use primitive::{
-    filter::{ptr_to_filter, CatscopeFilter, GuestFilter},
-    soltoken::SolToken,
-    tree::{parse_program_list, ProgramList},
+    filter::{ptr_to_filter, CatscopeFilter},
     wasmimport::HostImport,
     wasmstore::{AccountOnGuest, FilterEdgeWithNextPointer},
 };
+use primitive::{
+    guest::GuestFilter,
+    soltoken::SolToken,
+    tree::{parse_program_list, ProgramList},
+};
 use safejar::Safejar;
 use solpipe::Solpipe;
+use std::collections::VecDeque;
 
 //pub mod all;
+pub mod orca;
 pub mod primitive;
 pub mod safejar;
 pub mod solpipe;
 
+pub(crate) const DISCRIMINATOR_SIZE: usize = 8;
 /// A place holder for starting the web assembly.
 /// # Safety
+#[cfg(target_os = "wasi")]
 #[no_mangle] // Prevent Rust from changing the function name
 pub extern "C" fn _start() -> i32 {
     0
@@ -25,6 +32,7 @@ pub extern "C" fn _start() -> i32 {
 /// The code below defines a basic filter (edge generator) for
 /// system, token, Safejar, and Solpipe accounts.
 /// # Safety
+#[cfg(target_os = "wasi")]
 #[no_mangle] // Prevent Rust from changing the function name
 pub unsafe extern "C" fn init() -> u64 {
     let mut hi = HostImport::default();
@@ -51,6 +59,9 @@ pub unsafe extern "C" fn init() -> u64 {
             1 => {
                 list.push_back(Box::new(Solpipe::new(program_id)));
             }
+            2 => {
+                list.push_back(Box::new(Orca::new(program_id)));
+            }
             _ => {}
         }
     }
@@ -63,6 +74,7 @@ pub unsafe extern "C" fn init() -> u64 {
 /// # Returns
 /// Returns the memory offset to this byte slice.
 /// # Safety
+#[cfg(target_os = "wasi")]
 #[no_mangle] // Prevent Rust from changing the function name
 pub unsafe extern "C" fn allocate(cat_ptr: u64, data_size: u32) -> u64 {
     let filter: &mut CatscopeFilter = ptr_to_filter(cat_ptr).unwrap();
@@ -72,6 +84,7 @@ pub unsafe extern "C" fn allocate(cat_ptr: u64, data_size: u32) -> u64 {
 
 /// Deallocate a blob.
 /// # Safety
+#[cfg(target_os = "wasi")]
 #[no_mangle]
 pub unsafe extern "C" fn deallocate(cat_ptr: u64, ptr: u64) -> u64 {
     let filter: &mut CatscopeFilter = ptr_to_filter(cat_ptr).unwrap();
@@ -81,6 +94,7 @@ pub unsafe extern "C" fn deallocate(cat_ptr: u64, ptr: u64) -> u64 {
 
 /// Close the filtering object.
 /// # Safety
+#[cfg(target_os = "wasi")]
 #[no_mangle] // Prevent Rust from changing the function name
 pub unsafe extern "C" fn close(cat_ptr: u64) -> u64 {
     unsafe {
@@ -92,6 +106,7 @@ pub unsafe extern "C" fn close(cat_ptr: u64) -> u64 {
 
 /// A holder for responses.
 /// # Safety
+#[cfg(target_os = "wasi")]
 #[no_mangle] // Prevent Rust from changing the function name
 pub unsafe extern "C" fn response(
     _x1: i64,
@@ -114,6 +129,7 @@ pub unsafe extern "C" fn response(
 /// List programs that need to be tracked.
 /// # Safety
 ///
+#[cfg(target_os = "wasi")]
 #[no_mangle]
 pub unsafe extern "C" fn program_list(cat_ptr: u64) -> u64 {
     let filter: &mut CatscopeFilter = ptr_to_filter(cat_ptr).unwrap();
@@ -133,6 +149,7 @@ pub unsafe extern "C" fn program_list(cat_ptr: u64) -> u64 {
 /// Produce edges from reading an account.
 /// # Safety
 ///
+#[cfg(target_os = "wasi")]
 #[no_mangle] // Prevent Rust from changing the function name
 pub unsafe extern "C" fn edge(cat_ptr: u64, ptr: u64, size: u32) -> u64 {
     let filter: &mut CatscopeFilter = ptr_to_filter(cat_ptr).unwrap();

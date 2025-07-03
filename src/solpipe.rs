@@ -2,14 +2,17 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use solana_sdk::pubkey::Pubkey;
 use std::collections::VecDeque;
 
-use crate::primitive::{
-    common::{match_discriminator, PUBKEY_LEN, U32_LEN, U64_LEN},
-    filter::GuestFilter,
-    header::AccountHeader,
-    tree::{FilterEdge, WEIGHT_DIRECT, WEIGHT_IS_OUTGOING, WEIGHT_PROGRAM, WEIGHT_SYMLINK},
-    wasmimport::HostImport,
+#[cfg(target_os = "wasi")]
+use crate::primitive::wasmimport::HostImport;
+use crate::{
+    primitive::{
+        common::{match_discriminator, PUBKEY_LEN, U32_LEN, U64_LEN},
+        guest::GuestFilter,
+        header::AccountHeader,
+        tree::{FilterEdge, WEIGHT_DIRECT, WEIGHT_IS_OUTGOING, WEIGHT_PROGRAM, WEIGHT_SYMLINK},
+    },
+    DISCRIMINATOR_SIZE,
 };
-
 pub struct Solpipe {
     d_controller: [u8; 8],
     d_controller_api: [u8; 8],
@@ -22,7 +25,6 @@ pub struct Solpipe {
     pub program_id: Pubkey,
 }
 
-const DISCRIMINATOR_SIZE: usize = 8;
 impl GuestFilter for Solpipe {
     fn program_id_list(&self) -> Vec<Pubkey> {
         vec![self.program_id]
@@ -36,6 +38,7 @@ impl GuestFilter for Solpipe {
         let id = header.pubkey;
         let pubkey_len = std::mem::size_of::<Pubkey>();
         let subbuf = &data[DISCRIMINATOR_SIZE..];
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!("_edge - 1 - pubkey {};", id));
         if match_discriminator(&self.d_controller, data) {
             let program = FilterEdge {
@@ -65,6 +68,7 @@ impl GuestFilter for Solpipe {
             i += length;
             let pc_mint_pk = Pubkey::try_from(&subbuf[i..(i + length)]).unwrap();
 
+            #[cfg(target_os = "wasi")]
             HostImport::log(format!(
                 "edge - 2 - pubkey {}; controller; admin {}; pcmint {}; pcvault {};",
                 id, admin_pk, pc_mint_pk, pc_vault_pk
@@ -76,6 +80,7 @@ impl GuestFilter for Solpipe {
         } else if match_discriminator(&self.d_controller_api, data) {
             let i = 1; // start after bump
             let controller_pk = Pubkey::try_from(&subbuf[i..(i + pubkey_len)]).unwrap();
+            #[cfg(target_os = "wasi")]
             HostImport::log(format!(
                 "edge - 2 - controller_api {}; controller {}",
                 id, controller_pk
@@ -88,6 +93,7 @@ impl GuestFilter for Solpipe {
             };
             list.push_back(controller);
         } else if match_discriminator(&self.d_pipeline, data) {
+            #[cfg(target_os = "wasi")]
             HostImport::log(format!("edge - 2 - pubkey {}; pipeline", id));
             let mut i = 0;
             let length = pubkey_len;
@@ -110,6 +116,7 @@ impl GuestFilter for Solpipe {
             list.push_back(controller);
             list.push_back(admin);
         } else if match_discriminator(&self.d_payout, data) {
+            #[cfg(target_os = "wasi")]
             HostImport::log(format!("edge - 2 - pubkey {}; payout", id));
             let i = 2 + pubkey_len;
             let pipeline = Pubkey::try_from(&subbuf[i..(i + pubkey_len)]).unwrap();
@@ -121,6 +128,7 @@ impl GuestFilter for Solpipe {
             });
         } else if match_discriminator(&self.d_period_ring, data) {
             let i = 0;
+            #[cfg(target_os = "wasi")]
             HostImport::log(format!("edge - 2 - pubkey {}; period_ring", id));
             let pipeline = Pubkey::try_from(&subbuf[i..(i + pubkey_len)]).unwrap();
             list.push_back(FilterEdge {
@@ -131,6 +139,7 @@ impl GuestFilter for Solpipe {
             });
         } else if match_discriminator(&self.d_refunds, data) {
             let i = 0;
+            #[cfg(target_os = "wasi")]
             HostImport::log(format!("edge - 2 - pubkey {}; refunds", id));
             let pipeline = Pubkey::try_from(&subbuf[i..(i + pubkey_len)]).unwrap();
             list.push_back(FilterEdge {
@@ -161,6 +170,7 @@ impl GuestFilter for Solpipe {
                 None => return VecDeque::new(),
             };
             let payout = bidlist.payout;
+            #[cfg(target_os = "wasi")]
             HostImport::log(format!(
                 "edge - 2 - pubkey {}; bidlist; payout {}",
                 id, payout
@@ -291,6 +301,7 @@ pub struct BidList {
 impl BidList {
     pub fn parse(data: &[u8]) -> Option<Self> {
         if data.len() < 1 + 32 + 4 {
+            #[cfg(target_os = "wasi")]
             HostImport::log(String::from("bidlist parse - 1"));
             return None;
         }
@@ -306,6 +317,7 @@ impl BidList {
         let mut book = Vec::new();
         for _k in 0..size {
             if data.len() < i + 1 + 32 + 8 {
+                #[cfg(target_os = "wasi")]
                 HostImport::log(format!("bidlist parse - 2 - i {}", i));
                 return None;
             }
@@ -334,6 +346,7 @@ impl BidList {
             });
         }
         if data.len() < i + 8 {
+            #[cfg(target_os = "wasi")]
             HostImport::log(format!("bidlist parse - 3 - i {}", i));
             return None;
         }
@@ -365,18 +378,22 @@ const CLAIM_SIZE: usize = PUBKEY_LEN + U64_LEN;
 const CLAIM_HEADER_SIZE: usize = PUBKEY_LEN + U32_LEN;
 impl Refunds {
     pub fn count(data: &[u8]) -> Option<usize> {
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!("edge - Refunds::count - 1 - data {}", data.len()));
         if data.len() < CLAIM_HEADER_SIZE {
             return None;
         }
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!("edge - Refunds::count - 2 - data {}", data.len()));
         let nsubbuf = &data[PUBKEY_LEN..(PUBKEY_LEN + U32_LEN)];
         let x: [u8; U32_LEN] = nsubbuf.try_into().unwrap();
         let n = u32::from_le_bytes(x) as usize;
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!("edge - Refunds::count - 3 - data {}", data.len()));
         if data.len() < CLAIM_HEADER_SIZE + n * CLAIM_SIZE {
             return None;
         }
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!(
             "edge - Refunds::count - 4 - data {}; count {}",
             data.len(),
@@ -386,24 +403,30 @@ impl Refunds {
     }
     // Get the claims; length are not checked
     pub fn parse(data: &[u8], claim_i: usize) -> Claim {
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!(
             "edge - Refunds::parse - 1 - data {}; claim_i {}",
             data.len(),
             claim_i
         ));
         let start = CLAIM_HEADER_SIZE + claim_i * CLAIM_SIZE;
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!("edge - Refunds::parse - 2 - data {}", data.len()));
         let finish = start + CLAIM_SIZE;
         let subbuf = &data[start..finish];
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!("edge - Refunds::parse - 3 - data {}", data.len()));
         let mut i = 0;
         let bidder = Pubkey::try_from(&subbuf[i..(i + PUBKEY_LEN)]).unwrap();
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!("edge - Refunds::parse - 4 - data {}", data.len()));
         i += PUBKEY_LEN;
         let xsubbuf = &subbuf[i..(i + U64_LEN)];
         let x: [u8; U64_LEN] = xsubbuf.try_into().unwrap();
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!("edge - Refunds::parse - 5 - data {}", data.len()));
         let balance = u64::from_le_bytes(x);
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!("edge - Refunds::parse - 6 - data {}", data.len()));
         Claim { bidder, balance }
     }

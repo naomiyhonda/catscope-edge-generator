@@ -1,8 +1,12 @@
 pub mod common;
 pub mod err;
+#[cfg(target_os = "wasi")]
 pub mod filter;
+pub mod guest;
 pub mod header;
 pub mod soltoken;
 pub mod tree;
+#[cfg(target_os = "wasi")]
 pub mod wasmimport;
+#[cfg(target_os = "wasi")]
 pub mod wasmstore;
