@@ -2,14 +2,14 @@ use std::collections::VecDeque;
 
 use solana_sdk::pubkey::Pubkey;
 
+#[cfg(target_os = "wasi")]
+use crate::primitive::wasmimport::HostImport;
 use crate::primitive::{
     common::match_discriminator,
-    filter::GuestFilter,
+    guest::GuestFilter,
     header::AccountHeader,
     tree::{FilterEdge, WEIGHT_DIRECT, WEIGHT_PROGRAM},
-    wasmimport::HostImport,
 };
-
 pub struct Safejar {
     d_controller: [u8; 8],
     d_delegation: [u8; 8],
@@ -27,12 +27,14 @@ impl GuestFilter for Safejar {
         // all discriminators are the same length
         let prefix = self.d_controller.len();
         let pubkey_len = std::mem::size_of::<Pubkey>();
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!(
             "safejar_edge - 1 - pubkey {}; data len {}",
             id,
             data.len()
         ));
         if match_discriminator(&self.d_controller, data) {
+            #[cfg(target_os = "wasi")]
             HostImport::log(format!("safejar_edge - 2 - controller - pubkey {};", id));
             // program to controller
             list.push_back(FilterEdge {
@@ -49,6 +51,7 @@ impl GuestFilter for Safejar {
                 weight: WEIGHT_DIRECT,
             });
         } else if match_discriminator(&self.d_delegation, data) {
+            #[cfg(target_os = "wasi")]
             HostImport::log(format!("safejar_edge - 3 - delegation - pubkey {};", id));
             // controller to delegation
             list.push_back(FilterEdge {
@@ -58,6 +61,7 @@ impl GuestFilter for Safejar {
                 weight: WEIGHT_DIRECT,
             });
         }
+        #[cfg(target_os = "wasi")]
         HostImport::log(format!("safejar_edge - 4 - pubkey {};", id));
         list
     }
