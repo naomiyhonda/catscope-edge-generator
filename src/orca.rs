@@ -4,14 +4,11 @@ use solana_sdk::pubkey::Pubkey;
 
 #[cfg(target_os = "wasi")]
 use crate::primitive::wasmimport::HostImport;
-use crate::{
-    primitive::{
-        common::{match_discriminator, PUBKEY_LEN, U32_LEN, U64_LEN},
-        guest::GuestFilter,
-        header::AccountHeader,
-        tree::{FilterEdge, WEIGHT_DIRECT, WEIGHT_IS_OUTGOING, WEIGHT_PROGRAM, WEIGHT_SYMLINK},
-    },
-    DISCRIMINATOR_SIZE,
+use crate::primitive::{
+    common::match_discriminator,
+    guest::GuestFilter,
+    header::AccountHeader,
+    tree::{FilterEdge, WEIGHT_DIRECT},
 };
 pub struct Orca {
     d_whirlpool: [u8; 8],
@@ -115,7 +112,7 @@ impl GuestFilter for Orca {
         } else if match_discriminator(&self.d_tickarray, data) {
             // whirlpool
             {
-                i = prefix;
+                i = data.len() - pubkey_len;
                 let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
                 list.push_back(FilterEdge {
                     slot: header.slot,
@@ -146,16 +143,16 @@ impl Orca {
 }
 //  9d 14 31 e0 d9 57 c1 fe
 pub fn whirlpoolconfig_discriminator() -> [u8; 8] {
-    [184, 79, 171, 0, 183, 43, 113, 110]
+    [157, 20, 49, 224, 217, 87, 193, 254]
 }
 
 // 3f 95 d1 0c e1 80 63 09
 pub fn whirlpool_discriminator() -> [u8; 8] {
-    [184, 79, 171, 0, 183, 43, 113, 110]
+    [63, 149, 209, 12, 225, 128, 99, 9]
 }
 // 45 61 bd be 6e 07 42 bb
 pub fn tickarray_discriminator() -> [u8; 8] {
-    [184, 79, 171, 0, 183, 43, 113, 110]
+    [69, 97, 189, 190, 110, 7, 66, 187]
 }
 
 // unit tests
@@ -166,19 +163,30 @@ mod tests {
     use crate::primitive::tree::Weight;
 
     use super::*; // import functions from the parent module
-    use hex;
+    use std::sync::Once;
+
+    static INIT_LOGGER: Once = Once::new();
+
+    fn init_logger() {
+        INIT_LOGGER.call_once(|| {
+            env_logger::init();
+        });
+    }
+
+    use log::{info, warn};
     // dump with:  solana account --output-file=./whirlpool1.bin DtYKbQELgMZ3ihFUrCcCs9gy4djcUuhwgR7UpxVpP2Tg; xxd -p -c 99999999 ./whirlpool1.bin
     #[test]
     fn test_whirlpool() {
+        init_logger();
         let program_id = Pubkey::try_from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc").unwrap();
-        let data =
-            hex::decode(std::fs::read_to_string("tests/data/whirlpool1.hex").unwrap()).unwrap();
+        let data = std::fs::read("tests/data/whirlpool1.bin").unwrap();
+        info!("data length {}", data.len());
         let header = AccountHeader {
             pubkey: Pubkey::try_from("DtYKbQELgMZ3ihFUrCcCs9gy4djcUuhwgR7UpxVpP2Tg").unwrap(),
             lamports: 488832,
             data_size: data.len() as u32,
             node_id: 100432,
-            owner: Pubkey::try_from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc").unwrap(),
+            owner: program_id,
             rent_epoch: 1,
             slot: 1,
             executable: false,
@@ -203,4 +211,91 @@ mod tests {
             Pubkey::try_from("CdRr1RX5uFdJes33NiFiiG5TZNd6gvXWts9u9xjiCVRq").unwrap();
         assert_eq!(*m_edge.get(&token_vault_b).unwrap(), WEIGHT_DIRECT);
     }
+    #[test]
+    fn test_tickarray() {
+        init_logger();
+        let program_id = Pubkey::try_from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc").unwrap();
+        let list_pubkey = [
+            Pubkey::try_from("AAgXUtyECrW4uXyRzzrwgZrnutJ6YnftSSN1DHPehtgw").unwrap(),
+            Pubkey::try_from("FmU2Tg7vvqPhcZELTqUZCnNA6QqjZwGhDwZnNKWQurqf").unwrap(),
+        ];
+        let whirlpool = Pubkey::try_from("DtYKbQELgMZ3ihFUrCcCs9gy4djcUuhwgR7UpxVpP2Tg").unwrap();
+        for i in 1..3 {
+            let data = std::fs::read(format!("tests/data/tickarray{}.bin", i)).unwrap();
+            info!("data length {}", data.len());
+            let header = AccountHeader {
+                pubkey: list_pubkey[i - 1],
+                lamports: 488832,
+                data_size: data.len() as u32,
+                node_id: i as u64,
+                owner: program_id,
+                rent_epoch: 1,
+                slot: 1,
+                executable: false,
+            };
+            let filter = Orca::new(&program_id);
+            let mut list = filter.edge(&header, &data);
+            assert_eq!(list.len(), 1, "tick array must have 1 edge");
+            let mut m_edge: HashMap<Pubkey, Weight> = HashMap::default();
+            while let Some(edge) = list.pop_front() {
+                if edge.from == header.pubkey {
+                    // from
+                    m_edge.insert(edge.to, edge.weight);
+                } else {
+                    // to
+                    m_edge.insert(edge.from, edge.weight);
+                }
+            }
+            info!("m_edge {:?}", m_edge);
+            assert_eq!(
+                *m_edge.get(&whirlpool).unwrap(),
+                WEIGHT_DIRECT,
+                "need {} but got {:?} for whirlpool",
+                whirlpool,
+                m_edge
+            );
+        }
+    }
+    #[test]
+    fn test_whirlpoolconfig() {
+        init_logger();
+        let program_id = Pubkey::try_from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc").unwrap();
+        let data = std::fs::read("tests/data/whirlpoolconfig1.bin").unwrap();
+        assert_eq!(data.len(), 108);
+        info!("data length {}", data.len());
+        let header = AccountHeader {
+            pubkey: Pubkey::try_from("2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ").unwrap(),
+            lamports: 488832,
+            data_size: data.len() as u32,
+            node_id: 100432,
+            owner: program_id,
+            rent_epoch: 1,
+            slot: 1,
+            executable: false,
+        };
+        let filter = Orca::new(&program_id);
+        let mut list = filter.edge(&header, &data);
+        assert_eq!(list.len(), 3, "whirlpool config must have 3 edges");
+        let mut m_edge: HashMap<Pubkey, Weight> = HashMap::default();
+        while let Some(edge) = list.pop_front() {
+            if edge.from == header.pubkey {
+                // from
+                m_edge.insert(edge.to, edge.weight);
+            } else {
+                // to
+                m_edge.insert(edge.from, edge.weight);
+            }
+        }
+        info!("list {:?}", m_edge);
+        let collect_fee_authority =
+            Pubkey::try_from("CRQd5wvbf6FKVmjHC7on8w4pzFPzudij2BKXRcMCu7aK").unwrap();
+        assert_eq!(*m_edge.get(&collect_fee_authority).unwrap(), WEIGHT_DIRECT);
+        let fee_authority =
+            Pubkey::try_from("6BLTtBS9miUZruZtR9reTzp6ctGc4kVY4xrcxQwurYtw").unwrap();
+        assert_eq!(*m_edge.get(&fee_authority).unwrap(), WEIGHT_DIRECT);
+        let reward = Pubkey::try_from("DjDsi34mSB66p2nhBL6YvhbcLtZbkGfNybFeLDjJqxJW").unwrap();
+        assert_eq!(*m_edge.get(&reward).unwrap(), WEIGHT_DIRECT);
+    }
 }
+
+// 2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ
