@@ -304,5 +304,3 @@ mod tests {
         assert_eq!(*m_edge.get(&reward).unwrap(), WEIGHT_DIRECT);
     }
 }
-
-// 2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ

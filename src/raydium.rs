@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use solana_sdk::pubkey::Pubkey;
+use solana_sdk::{pubkey::Pubkey, system_program};
 
 #[cfg(target_os = "wasi")]
 use crate::primitive::wasmimport::HostImport;
@@ -8,15 +8,21 @@ use crate::primitive::{
     common::match_discriminator,
     guest::GuestFilter,
     header::AccountHeader,
-    tree::{FilterEdge, WEIGHT_DIRECT},
+    tree::{FilterEdge, WEIGHT_DIRECT, WEIGHT_SYMLINK},
 };
 pub struct Raydium {
-    d_whirlpool: [u8; 8],
-    d_whirlpoolconfig: [u8; 8],
-    d_tickarray: [u8; 8],
+    d_amm_config: [u8; 8],
+    d_observation_state: [u8; 8],
+    d_operation_state: [u8; 8],
+    d_personal_position_state: [u8; 8],
+    d_pool_state: [u8; 8],
+    d_protocol_position_state: [u8; 8],
+    d_support_mint_associated: [u8; 8],
+    d_tick_array_bitmap_extension: [u8; 8],
+    d_tick_array_state: [u8; 8],
     pub program_id: Pubkey,
 }
-impl GuestFilter for Orca {
+impl GuestFilter for Raydium {
     fn program_id_list(&self) -> Vec<Pubkey> {
         vec![self.program_id]
     }
@@ -25,28 +31,31 @@ impl GuestFilter for Orca {
         let mut list = VecDeque::new();
         let id = header.pubkey;
         // all discriminators are the same length
-        let prefix = self.d_whirlpool.len();
-        let mut i;
+        let prefix = self.d_amm_config.len();
+        let mut i = prefix;
         let pubkey_len = std::mem::size_of::<Pubkey>();
         #[cfg(target_os = "wasi")]
         HostImport::log(format!(
-            "orca_edge - 1 - pubkey {}; data len {}",
+            "raydium_edge - 1 - pubkey {}; data len {}",
             id,
             data.len()
         ));
-        if match_discriminator(&self.d_whirlpoolconfig, data) {
-            #[cfg(target_os = "wasi")]
-            HostImport::log(format!("orca_edge - 2 - whirlpoolconfig - pubkey {};", id));
-            // program
-            list.push_back(FilterEdge {
-                slot: header.slot,
-                weight: WEIGHT_DIRECT,
-                from: self.program_id,
-                to: id,
-            });
-            // fee authority
+
+        if match_discriminator(&self.d_amm_config, data) {
+            // protocol owner
             {
-                i = 8;
+                i += 3;
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                list.push_back(FilterEdge {
+                    slot: header.slot,
+                    weight: WEIGHT_SYMLINK,
+                    from: pubkey,
+                    to: id,
+                });
+            }
+            // fund owner
+            {
+                i += pubkey_len + 18;
                 let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
                 list.push_back(FilterEdge {
                     slot: header.slot,
@@ -55,34 +64,10 @@ impl GuestFilter for Orca {
                     to: pubkey,
                 });
             }
-            // Collect Protocol Fees Authority
+        } else if match_discriminator(&self.d_protocol_position_state, data) {
+            // pool
             {
-                i = 40;
-                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
-                list.push_back(FilterEdge {
-                    slot: header.slot,
-                    weight: WEIGHT_DIRECT,
-                    from: id,
-                    to: pubkey,
-                });
-            }
-            // Reward Emissions Super Authority
-            {
-                i = 72;
-                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
-                list.push_back(FilterEdge {
-                    slot: header.slot,
-                    weight: WEIGHT_DIRECT,
-                    from: id,
-                    to: pubkey,
-                });
-            }
-        } else if match_discriminator(&self.d_whirlpool, data) {
-            #[cfg(target_os = "wasi")]
-            HostImport::log(format!("orca_edge - 2 - whirlpool - pubkey {};", id));
-            // WhirlpoolsConfig
-            {
-                i = 8;
+                i += 1;
                 let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
                 list.push_back(FilterEdge {
                     slot: header.slot,
@@ -91,35 +76,11 @@ impl GuestFilter for Orca {
                     to: id,
                 });
             }
-            // skip mint edges; they are useless as the mint information is available in the vault
-            // accounts
-            // token vault A
+        } else if match_discriminator(&self.d_support_mint_associated, data) {
+            // skipping mint edges
+        } else if match_discriminator(&self.d_tick_array_state, data) {
+            // pool
             {
-                i = 133;
-                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
-                list.push_back(FilterEdge {
-                    slot: header.slot,
-                    weight: WEIGHT_DIRECT,
-                    from: id,
-                    to: pubkey,
-                });
-            }
-            // token vault B
-            {
-                i = 213;
-                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
-                list.push_back(FilterEdge {
-                    slot: header.slot,
-                    weight: WEIGHT_DIRECT,
-                    from: id,
-                    to: pubkey,
-                });
-            }
-            // rewards -> TBD
-        } else if match_discriminator(&self.d_tickarray, data) {
-            // whirlpool
-            {
-                i = data.len() - pubkey_len;
                 let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
                 list.push_back(FilterEdge {
                     slot: header.slot,
@@ -127,182 +88,195 @@ impl GuestFilter for Orca {
                     from: pubkey,
                     to: id,
                 });
+            }
+        } else if match_discriminator(&self.d_personal_position_state, data) {
+            // nft mint
+            {
+                i += 1;
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                list.push_back(FilterEdge {
+                    slot: header.slot,
+                    weight: WEIGHT_SYMLINK,
+                    from: pubkey,
+                    to: id,
+                });
+            }
+            // pool
+            {
+                i += pubkey_len;
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                list.push_back(FilterEdge {
+                    slot: header.slot,
+                    weight: WEIGHT_DIRECT,
+                    from: pubkey,
+                    to: id,
+                });
+            }
+        } else if match_discriminator(&self.d_observation_state, data) {
+            // pool
+            {
+                i += 11;
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                list.push_back(FilterEdge {
+                    slot: header.slot,
+                    weight: WEIGHT_DIRECT,
+                    from: pubkey,
+                    to: id,
+                });
+            }
+        } else if match_discriminator(&self.d_tick_array_bitmap_extension, data) {
+            // pool id
+            {
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                list.push_back(FilterEdge {
+                    slot: header.slot,
+                    weight: WEIGHT_DIRECT,
+                    from: pubkey,
+                    to: id,
+                });
+            }
+        } else if match_discriminator(&self.d_pool_state, data) {
+            // amm config
+            {
+                i += 1;
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                list.push_back(FilterEdge {
+                    slot: header.slot,
+                    weight: WEIGHT_DIRECT,
+                    from: pubkey,
+                    to: id,
+                });
+            }
+            // owner
+            {
+                i += pubkey_len;
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                list.push_back(FilterEdge {
+                    slot: header.slot,
+                    weight: WEIGHT_DIRECT,
+                    from: id,
+                    to: pubkey,
+                });
+            }
+            // token vault 0
+            {
+                i += pubkey_len + 2 * pubkey_len;
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                list.push_back(FilterEdge {
+                    slot: header.slot,
+                    weight: WEIGHT_DIRECT,
+                    from: id,
+                    to: pubkey,
+                });
+            }
+            // token vault 1
+            {
+                i += pubkey_len;
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                list.push_back(FilterEdge {
+                    slot: header.slot,
+                    weight: WEIGHT_DIRECT,
+                    from: id,
+                    to: pubkey,
+                });
+            }
+            // observation account
+            {
+                i += pubkey_len;
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                list.push_back(FilterEdge {
+                    slot: header.slot,
+                    weight: WEIGHT_DIRECT,
+                    from: id,
+                    to: pubkey,
+                });
+            }
+        } else if match_discriminator(&self.d_operation_state, data) {
+            i += 1;
+            // operation owners
+            for _k in 0..10 {
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                if pubkey != system_program::ID {
+                    list.push_back(FilterEdge {
+                        slot: header.slot,
+                        weight: WEIGHT_DIRECT,
+                        from: id,
+                        to: pubkey,
+                    });
+                }
+                i += pubkey_len;
+            }
+            // whitelist mints
+            for _k in 0..100 {
+                let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
+                if pubkey != system_program::ID {
+                    list.push_back(FilterEdge {
+                        slot: header.slot,
+                        weight: WEIGHT_DIRECT,
+                        from: id,
+                        to: pubkey,
+                    });
+                }
+                i += pubkey_len;
             }
         }
+
         #[cfg(target_os = "wasi")]
-        HostImport::log(format!("orca_edge - 4 - pubkey {};", id));
+        HostImport::log(format!("raydium_edge - 4 - pubkey {};", id));
         list
     }
 }
 
-impl Orca {
+impl Raydium {
     pub fn new(program_id: &Pubkey) -> Self {
-        let d_whirlpool = whirlpool_discriminator();
-        let d_whirlpoolconfig = whirlpoolconfig_discriminator();
-        let d_tickarray = tickarray_discriminator();
+        let d_amm_config = discriminator_amm_config();
+        let d_observation_state = discriminator_observation_state();
+        let d_operation_state = discriminator_operation_state();
+        let d_personal_position_state = discriminator_personal_position_state();
+        let d_pool_state = discriminator_pool_state();
+        let d_protocol_position_state = discriminator_protocol_position_state();
+        let d_support_mint_associated = discriminator_support_mint_associated();
+        let d_tick_array_bitmap_extension = discriminator_tick_array_bitmap_extension();
+        let d_tick_array_state = discriminator_tick_array_state();
         Self {
             program_id: *program_id,
-            d_whirlpool,
-            d_tickarray,
-            d_whirlpoolconfig,
+            d_amm_config,
+            d_observation_state,
+            d_operation_state,
+            d_personal_position_state,
+            d_pool_state,
+            d_protocol_position_state,
+            d_support_mint_associated,
+            d_tick_array_bitmap_extension,
+            d_tick_array_state,
         }
     }
 }
-//  9d 14 31 e0 d9 57 c1 fe
-pub fn whirlpoolconfig_discriminator() -> [u8; 8] {
-    [157, 20, 49, 224, 217, 87, 193, 254]
+
+pub fn discriminator_amm_config() -> [u8; 8] {
+    [218, 244, 33, 104, 203, 203, 43, 111]
 }
-
-// 3f 95 d1 0c e1 80 63 09
-pub fn whirlpool_discriminator() -> [u8; 8] {
-    [63, 149, 209, 12, 225, 128, 99, 9]
+pub fn discriminator_observation_state() -> [u8; 8] {
+    [122, 174, 197, 53, 129, 9, 165, 132]
 }
-// 45 61 bd be 6e 07 42 bb
-pub fn tickarray_discriminator() -> [u8; 8] {
-    [69, 97, 189, 190, 110, 7, 66, 187]
+pub fn discriminator_operation_state() -> [u8; 8] {
+    [19, 236, 58, 237, 81, 222, 183, 252]
 }
-
-// unit tests
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use crate::primitive::tree::Weight;
-
-    use super::*; // import functions from the parent module
-    use std::sync::Once;
-
-    static INIT_LOGGER: Once = Once::new();
-
-    fn init_logger() {
-        INIT_LOGGER.call_once(|| {
-            env_logger::init();
-        });
-    }
-
-    use log::{info, warn};
-    // dump with:  solana account --output-file=./whirlpool1.bin DtYKbQELgMZ3ihFUrCcCs9gy4djcUuhwgR7UpxVpP2Tg; xxd -p -c 99999999 ./whirlpool1.bin
-    #[test]
-    fn test_whirlpool() {
-        init_logger();
-        let program_id = Pubkey::try_from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc").unwrap();
-        let data = std::fs::read("tests/data/whirlpool1.bin").unwrap();
-        info!("data length {}", data.len());
-        let header = AccountHeader {
-            pubkey: Pubkey::try_from("DtYKbQELgMZ3ihFUrCcCs9gy4djcUuhwgR7UpxVpP2Tg").unwrap(),
-            lamports: 488832,
-            data_size: data.len() as u32,
-            node_id: 100432,
-            owner: program_id,
-            rent_epoch: 1,
-            slot: 1,
-            executable: false,
-        };
-        let filter = Orca::new(&program_id);
-        let mut list = filter.edge(&header, &data);
-        assert_eq!(list.len(), 3, "whirlpool must have 3 edges");
-        let mut m_edge: HashMap<Pubkey, Weight> = HashMap::default();
-        while let Some(edge) = list.pop_front() {
-            if edge.from == header.pubkey {
-                // from
-                m_edge.insert(edge.to, edge.weight);
-            } else {
-                // to
-                m_edge.insert(edge.from, edge.weight);
-            }
-        }
-        let token_vault_a =
-            Pubkey::try_from("3AfqjdDWMof5p2gEH4MRPZQyhDC36spx8GJk5LZJQRnP").unwrap();
-        assert_eq!(*m_edge.get(&token_vault_a).unwrap(), WEIGHT_DIRECT);
-        let token_vault_b =
-            Pubkey::try_from("CdRr1RX5uFdJes33NiFiiG5TZNd6gvXWts9u9xjiCVRq").unwrap();
-        assert_eq!(*m_edge.get(&token_vault_b).unwrap(), WEIGHT_DIRECT);
-    }
-    #[test]
-    fn test_tickarray() {
-        init_logger();
-        let program_id = Pubkey::try_from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc").unwrap();
-        let list_pubkey = [
-            Pubkey::try_from("AAgXUtyECrW4uXyRzzrwgZrnutJ6YnftSSN1DHPehtgw").unwrap(),
-            Pubkey::try_from("FmU2Tg7vvqPhcZELTqUZCnNA6QqjZwGhDwZnNKWQurqf").unwrap(),
-        ];
-        let whirlpool = Pubkey::try_from("DtYKbQELgMZ3ihFUrCcCs9gy4djcUuhwgR7UpxVpP2Tg").unwrap();
-        for i in 1..3 {
-            let data = std::fs::read(format!("tests/data/tickarray{}.bin", i)).unwrap();
-            info!("data length {}", data.len());
-            let header = AccountHeader {
-                pubkey: list_pubkey[i - 1],
-                lamports: 488832,
-                data_size: data.len() as u32,
-                node_id: i as u64,
-                owner: program_id,
-                rent_epoch: 1,
-                slot: 1,
-                executable: false,
-            };
-            let filter = Orca::new(&program_id);
-            let mut list = filter.edge(&header, &data);
-            assert_eq!(list.len(), 1, "tick array must have 1 edge");
-            let mut m_edge: HashMap<Pubkey, Weight> = HashMap::default();
-            while let Some(edge) = list.pop_front() {
-                if edge.from == header.pubkey {
-                    // from
-                    m_edge.insert(edge.to, edge.weight);
-                } else {
-                    // to
-                    m_edge.insert(edge.from, edge.weight);
-                }
-            }
-            info!("m_edge {:?}", m_edge);
-            assert_eq!(
-                *m_edge.get(&whirlpool).unwrap(),
-                WEIGHT_DIRECT,
-                "need {} but got {:?} for whirlpool",
-                whirlpool,
-                m_edge
-            );
-        }
-    }
-    #[test]
-    fn test_whirlpoolconfig() {
-        init_logger();
-        let program_id = Pubkey::try_from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc").unwrap();
-        let data = std::fs::read("tests/data/whirlpoolconfig1.bin").unwrap();
-        assert_eq!(data.len(), 108);
-        info!("data length {}", data.len());
-        let header = AccountHeader {
-            pubkey: Pubkey::try_from("2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ").unwrap(),
-            lamports: 488832,
-            data_size: data.len() as u32,
-            node_id: 100432,
-            owner: program_id,
-            rent_epoch: 1,
-            slot: 1,
-            executable: false,
-        };
-        let filter = Orca::new(&program_id);
-        let mut list = filter.edge(&header, &data);
-        assert_eq!(list.len(), 4, "whirlpool config must have 3 edges");
-        let mut m_edge: HashMap<Pubkey, Weight> = HashMap::default();
-        while let Some(edge) = list.pop_front() {
-            if edge.from == header.pubkey {
-                // from
-                m_edge.insert(edge.to, edge.weight);
-            } else {
-                // to
-                m_edge.insert(edge.from, edge.weight);
-            }
-        }
-        info!("list {:?}", m_edge);
-        let collect_fee_authority =
-            Pubkey::try_from("CRQd5wvbf6FKVmjHC7on8w4pzFPzudij2BKXRcMCu7aK").unwrap();
-        assert_eq!(*m_edge.get(&collect_fee_authority).unwrap(), WEIGHT_DIRECT);
-        let fee_authority =
-            Pubkey::try_from("6BLTtBS9miUZruZtR9reTzp6ctGc4kVY4xrcxQwurYtw").unwrap();
-        assert_eq!(*m_edge.get(&fee_authority).unwrap(), WEIGHT_DIRECT);
-        let reward = Pubkey::try_from("DjDsi34mSB66p2nhBL6YvhbcLtZbkGfNybFeLDjJqxJW").unwrap();
-        assert_eq!(*m_edge.get(&reward).unwrap(), WEIGHT_DIRECT);
-    }
+pub fn discriminator_personal_position_state() -> [u8; 8] {
+    [70, 111, 150, 126, 230, 15, 25, 117]
 }
-
-// 2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ
+pub fn discriminator_pool_state() -> [u8; 8] {
+    [247, 237, 227, 245, 215, 195, 222, 70]
+}
+pub fn discriminator_protocol_position_state() -> [u8; 8] {
+    [100, 226, 145, 99, 146, 218, 160, 106]
+}
+pub fn discriminator_support_mint_associated() -> [u8; 8] {
+    [134, 40, 183, 79, 12, 112, 162, 53]
+}
+pub fn discriminator_tick_array_bitmap_extension() -> [u8; 8] {
+    [60, 150, 36, 219, 97, 128, 139, 153]
+}
+pub fn discriminator_tick_array_state() -> [u8; 8] {
+    [192, 155, 85, 205, 49, 249, 129, 42]
+}
