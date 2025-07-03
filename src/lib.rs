@@ -10,11 +10,15 @@ use primitive::{
 use safejar::Safejar;
 use solpipe::Solpipe;
 
+use self::orca::Orca;
+
 //pub mod all;
+pub mod orca;
 pub mod primitive;
 pub mod safejar;
 pub mod solpipe;
 
+pub(crate) const DISCRIMINATOR_SIZE: usize = 8;
 /// A place holder for starting the web assembly.
 /// # Safety
 #[no_mangle] // Prevent Rust from changing the function name
@@ -50,6 +54,9 @@ pub unsafe extern "C" fn init() -> u64 {
             }
             1 => {
                 list.push_back(Box::new(Solpipe::new(program_id)));
+            }
+            2 => {
+                list.push_back(Box::new(Orca::new(program_id)));
             }
             _ => {}
         }

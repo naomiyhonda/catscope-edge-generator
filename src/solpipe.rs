@@ -2,12 +2,15 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use solana_sdk::pubkey::Pubkey;
 use std::collections::VecDeque;
 
-use crate::primitive::{
-    common::{match_discriminator, PUBKEY_LEN, U32_LEN, U64_LEN},
-    filter::GuestFilter,
-    header::AccountHeader,
-    tree::{FilterEdge, WEIGHT_DIRECT, WEIGHT_IS_OUTGOING, WEIGHT_PROGRAM, WEIGHT_SYMLINK},
-    wasmimport::HostImport,
+use crate::{
+    primitive::{
+        common::{match_discriminator, PUBKEY_LEN, U32_LEN, U64_LEN},
+        filter::GuestFilter,
+        header::AccountHeader,
+        tree::{FilterEdge, WEIGHT_DIRECT, WEIGHT_IS_OUTGOING, WEIGHT_PROGRAM, WEIGHT_SYMLINK},
+        wasmimport::HostImport,
+    },
+    DISCRIMINATOR_SIZE,
 };
 
 pub struct Solpipe {
@@ -22,7 +25,6 @@ pub struct Solpipe {
     pub program_id: Pubkey,
 }
 
-const DISCRIMINATOR_SIZE: usize = 8;
 impl GuestFilter for Solpipe {
     fn program_id_list(&self) -> Vec<Pubkey> {
         vec![self.program_id]
