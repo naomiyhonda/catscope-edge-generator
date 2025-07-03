@@ -37,6 +37,13 @@ impl GuestFilter for Orca {
         if match_discriminator(&self.d_whirlpoolconfig, data) {
             #[cfg(target_os = "wasi")]
             HostImport::log(format!("orca_edge - 2 - whirlpoolconfig - pubkey {};", id));
+            // program
+            list.push_back(FilterEdge {
+                slot: header.slot,
+                weight: WEIGHT_DIRECT,
+                from: self.program_id,
+                to: id,
+            });
             // fee authority
             {
                 i = 8;
