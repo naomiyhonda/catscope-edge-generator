@@ -48,34 +48,41 @@ impl GuestFilter for Orca {
             {
                 i = 8;
                 let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
-                list.push_back(FilterEdge {
-                    slot: header.slot,
-                    weight: WEIGHT_DIRECT,
-                    from: id,
-                    to: pubkey,
-                });
+                if pubkey != system_program::ID {
+                    list.push_back(FilterEdge {
+                        slot: header.slot,
+                        weight: WEIGHT_DIRECT,
+                        from: id,
+                        to: pubkey,
+                    });
+                }
+                
             }
             // Collect Protocol Fees Authority
             {
                 i = 40;
                 let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
-                list.push_back(FilterEdge {
-                    slot: header.slot,
-                    weight: WEIGHT_DIRECT,
-                    from: id,
-                    to: pubkey,
-                });
+                if pubkey != system_program::ID {
+                    list.push_back(FilterEdge {
+                        slot: header.slot,
+                        weight: WEIGHT_DIRECT,
+                        from: id,
+                        to: pubkey,
+                    });
+                }
             }
             // Reward Emissions Super Authority
             {
                 i = 72;
                 let pubkey = Pubkey::try_from(&data[i..(i + pubkey_len)]).unwrap();
-                list.push_back(FilterEdge {
-                    slot: header.slot,
-                    weight: WEIGHT_DIRECT,
-                    from: id,
-                    to: pubkey,
-                });
+                if pubkey != system_program::ID {
+                    list.push_back(FilterEdge {
+                        slot: header.slot,
+                        weight: WEIGHT_DIRECT,
+                        from: id,
+                        to: pubkey,
+                    });
+                }
             }
         } else if match_discriminator(&self.d_whirlpool, data) {
             #[cfg(target_os = "wasi")]
